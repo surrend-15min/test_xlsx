@@ -2,70 +2,123 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <title>Visualizzatore Excel</title>
+  <title>Visualizzatore Excel con Stili</title>
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    .excel-table th, .excel-table td {
-      border: 1px solid #ddd;
-      padding: 4px 8px;
-      text-align: left;
-    }
     .excel-table {
       border-collapse: collapse;
       width: 100%;
-      margin-top: 10px;
-    }
-    .tab-content {
       margin-top: 15px;
+    }
+    .excel-table td {
+      border: 1px solid #aaa;
+      padding: 4px;
+      min-width: 60px;
+      white-space: pre-wrap;
     }
   </style>
 </head>
 <body class="p-4">
 
-  <h2 class="mb-4">Visualizzatore Excel lato client</h2>
-
-  <div id="tabs-container">
-    <ul class="nav nav-tabs" id="sheetTabs" role="tablist"></ul>
-    <div class="tab-content" id="sheetContent"></div>
-  </div>
+  <h2 class="mb-4">Visualizzatore Excel con Stili</h2>
+  <ul class="nav nav-tabs" id="sheetTabs" role="tablist"></ul>
+  <div class="tab-content" id="sheetContent"></div>
 
   <script>
-    // URL del file Excel sul server
-    const fileURL = "Tracciato_Migliorie_DWH.xlsx"; // Cambia con il percorso corretto
+    const fileURL = "/files/miofile.xlsx"; // Cambia qui se necessario
 
     fetch(fileURL)
       .then(res => res.arrayBuffer())
       .then(data => {
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: "array", cellStyles: true });
 
-        const sheetTabs = document.getElementById('sheetTabs');
-        const sheetContent = document.getElementById('sheetContent');
+        const tabs = document.getElementById('sheetTabs');
+        const content = document.getElementById('sheetContent');
 
-        workbook.SheetNames.forEach((sheetName, index) => {
+        workbook.SheetNames.forEach((sheetName, sheetIndex) => {
           const sheet = workbook.Sheets[sheetName];
-          const html = XLSX.utils.sheet_to_html(sheet, { header: "", editable: false });
+          const merges = sheet["!merges"] || [];
+          const range = XLSX.utils.decode_range(sheet["!ref"]);
 
-          // Crea la tab
-          const tabId = `sheet-${index}`;
-          const tab = document.createElement('li');
+          const tabId = `sheet-${sheetIndex}`;
+          const isActive = sheetIndex === 0;
+
+          // Crea tab
+          const tab = document.createElement("li");
           tab.className = "nav-item";
           tab.innerHTML = `
-            <button class="nav-link ${index === 0 ? 'active' : ''}" id="${tabId}-tab" data-bs-toggle="tab" data-bs-target="#${tabId}" type="button" role="tab">${sheetName}</button>
+            <button class="nav-link ${isActive ? 'active' : ''}" id="${tabId}-tab" data-bs-toggle="tab" data-bs-target="#${tabId}" type="button" role="tab">${sheetName}</button>
           `;
-          sheetTabs.appendChild(tab);
+          tabs.appendChild(tab);
 
-          // Crea il contenuto della tab
-          const tabPane = document.createElement('div');
-          tabPane.className = `tab-pane fade ${index === 0 ? 'show active' : ''}`;
-          tabPane.id = tabId;
-          tabPane.role = "tabpanel";
-          tabPane.innerHTML = html;
-          sheetContent.appendChild(tabPane);
+          // Crea contenuto tab
+          let html = `<div class="tab-pane fade ${isActive ? 'show active' : ''}" id="${tabId}" role="tabpanel">`;
+          html += `<table class="excel-table">`;
+
+          for (let R = range.s.r; R <= range.e.r; ++R) {
+            html += "<tr>";
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+              const cellAddress = { c: C, r: R };
+              const cellRef = XLSX.utils.encode_cell(cellAddress);
+              const cell = sheet[cellRef];
+
+              // Gestione celle unite
+              let skip = false;
+              let colspan = 1, rowspan = 1;
+              for (const merge of merges) {
+                if (merge.s.r === R && merge.s.c === C) {
+                  rowspan = merge.e.r - merge.s.r + 1;
+                  colspan = merge.e.c - merge.s.c + 1;
+                } else if (R >= merge.s.r && R <= merge.e.r && C >= merge.s.c && C <= merge.e.c) {
+                  skip = true;
+                  break;
+                }
+              }
+              if (skip) continue;
+
+              const value = cell ? cell.v : "";
+
+              // Applica stili
+              let style = "";
+              if (cell && cell.s) {
+                const s = cell.s;
+
+                // Sfondo
+                if (s.fill?.fgColor?.rgb) {
+                  style += `background-color: #${s.fill.fgColor.rgb};`;
+                }
+
+                // Colore testo
+                if (s.font?.color?.rgb) {
+                  style += `color: #${s.font.color.rgb};`;
+                }
+
+                // Grassetto / corsivo
+                if (s.font?.bold) style += `font-weight: bold;`;
+                if (s.font?.italic) style += `font-style: italic;`;
+
+                // Allineamenti
+                if (s.alignment?.horizontal) {
+                  style += `text-align: ${s.alignment.horizontal};`;
+                }
+                if (s.alignment?.vertical) {
+                  style += `vertical-align: ${s.alignment.vertical};`;
+                }
+              }
+
+              html += `<td${rowspan > 1 ? ` rowspan="${rowspan}"` : ""}${colspan > 1 ? ` colspan="${colspan}"` : ""} style="${style}">${value}</td>`;
+            }
+            html += "</tr>";
+          }
+
+          html += `</table></div>`;
+          content.innerHTML += html;
         });
       })
-      .catch(error => {
-        console.error("Errore nel caricamento del file Excel:", error);
+      .catch(err => {
+        console.error("Errore nel caricamento:", err);
+        document.getElementById("sheetContent").innerHTML = "<p class='text-danger'>Errore nel caricamento del file Excel.</p>";
       });
   </script>
 
